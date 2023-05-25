@@ -21,11 +21,33 @@ table! {
         first -> Text,
         last -> Text,
         email -> Text,
-        pw -> Text,
-        // settings JSON
-        // permissions JSON
-        // decks? Array
-        // hair_color -> Nullable<Text>,
+        // TODO implement google login
+    }
+}
+
+table! {
+    decks (id) {
+        id -> Integer,
+        userId -> Integer,
+        from -> Text,
+        to -> Text,
+        seenAt -> Timestamp,
+    }
+}
+
+table! {
+    cards (id) {
+        id -> Integer,
+        deckId -> Integer,
+        from -> Text,
+        to -> Text,
+        example -> Text,
+        audioUrl -> Text,
+        seenAt -> Timestamp,
+        seenFor -> Integer, // ms
+        rating -> Integer,
+        prevRating -> Integer,
+        related -> Array<Integer>,
     }
 }
 
@@ -36,8 +58,6 @@ struct User {
     first: String,
     last: String,
     email: String,
-    pw: String,
-    // hair_color: Option<String>,
 }
 
 #[derive(serde::Deserialize, Insertable)]
@@ -47,7 +67,6 @@ struct NewUser {
     first: String,
     last: String,
     email: String,
-    pw: String,
 }
 
 #[tokio::main]
@@ -65,12 +84,14 @@ async fn main() {
     let db_url = env::var("DATABASE_URL").unwrap();
 
     let manager = deadpool_diesel::postgres::Manager::new(db_url, deadpool_diesel::Runtime::Tokio1);
+
     let pool = deadpool_diesel::postgres::Pool::builder(manager)
         .build()
         .unwrap();
 
     {
         let conn = pool.get().await.unwrap();
+
         conn.interact(|conn| conn.run_pending_migrations(MIGRATIONS).map(|_| ()))
             .await
             .unwrap()
@@ -78,8 +99,8 @@ async fn main() {
     }
 
     let app = Router::new()
-        .route("/user/list", get(list_users))
-        .route("/user/create", post(create_user))
+        .route("/user", get(list_users))
+        .route("/user", post(create_user))
         .with_state(pool);
 
     // run it with hyper
@@ -97,6 +118,7 @@ async fn create_user(
     Json(new_user): Json<NewUser>,
 ) -> Result<Json<User>, (StatusCode, String)> {
     let conn = pool.get().await.map_err(internal_error)?;
+
     let res = conn
         .interact(|conn| {
             diesel::insert_into(users::table)
@@ -107,6 +129,7 @@ async fn create_user(
         .await
         .map_err(internal_error)?
         .map_err(internal_error)?;
+
     Ok(Json(res))
 }
 
@@ -114,18 +137,20 @@ async fn list_users(
     State(pool): State<deadpool_diesel::postgres::Pool>,
 ) -> Result<Json<Vec<User>>, (StatusCode, String)> {
     let conn = pool.get().await.map_err(internal_error)?;
+
     let res = conn
         .interact(|conn| users::table.select(User::as_select()).load(conn))
         .await
         .map_err(internal_error)?
         .map_err(internal_error)?;
+
     Ok(Json(res))
 }
 
 /// Utility function for mapping any error into a `500 Internal Server Error` response.
 fn internal_error<E>(err: E) -> (StatusCode, String)
-where
-    E: std::error::Error,
+    where
+        E: std::error::Error,
 {
     (StatusCode::INTERNAL_SERVER_ERROR, err.to_string())
 }
