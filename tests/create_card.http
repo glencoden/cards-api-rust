@@ -1,0 +1,18 @@
+POST http://localhost:3000/cards
+Content-Type: application/json
+
+{
+    "user_id": 1,
+    "deck_id": 1,
+    "from": "Deutsch",
+    "to": "한고어",
+    "example": "제 여자친구는 바다를 좋아해요",
+    "audio_url": "TODO",
+    "seen_at": "2021-01-01T00:00:00",
+    "seen_for": 0,
+    "rating": 0,
+    "prev_rating": 0,
+    "related": []
+}
+
+###

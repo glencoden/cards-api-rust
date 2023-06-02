@@ -25,28 +25,31 @@ table! {
     }
 }
 
+// TODO implement nullables in tables below
+
 table! {
     decks (id) {
         id -> Integer,
-        userId -> Integer,
+        user_id -> Integer,
         from -> Text,
         to -> Text,
-        seenAt -> Timestamp,
+        seen_at -> Timestamp,
     }
 }
 
 table! {
     cards (id) {
         id -> Integer,
-        deckId -> Integer,
+        user_id -> Integer,
+        deck_id -> Integer,
         from -> Text,
         to -> Text,
         example -> Text,
-        audioUrl -> Text,
-        seenAt -> Timestamp,
-        seenFor -> Integer, // ms
+        audio_url -> Text,
+        seen_at -> Timestamp,
+        seen_for -> Integer, // ms
         rating -> Integer,
-        prevRating -> Integer,
+        prev_rating -> Integer,
         related -> Array<Integer>,
     }
 }
@@ -67,6 +70,38 @@ struct NewUser {
     first: String,
     last: String,
     email: String,
+}
+
+#[derive(serde::Serialize, Selectable, Queryable)]
+struct Card {
+    id: i32,
+    user_id: i32,
+    deck_id: i32,
+    from: String,
+    to: String,
+    example: String,
+    audio_url: String,
+    seen_at: chrono::NaiveDateTime,
+    seen_for: i32,
+    rating: i32,
+    prev_rating: i32,
+    related: Vec<i32>,
+}
+
+#[derive(serde::Deserialize, Insertable)]
+#[diesel(table_name = cards)]
+struct NewCard {
+    user_id: i32,
+    deck_id: i32,
+    from: String,
+    to: String,
+    example: String,
+    audio_url: String,
+    seen_at: chrono::NaiveDateTime,
+    seen_for: i32,
+    rating: i32,
+    prev_rating: i32,
+    related: Vec<i32>,
 }
 
 #[tokio::main]
@@ -99,8 +134,11 @@ async fn main() {
     }
 
     let app = Router::new()
-        .route("/user", get(list_users))
-        .route("/user", post(create_user))
+        .route("/users", get(list_users))
+        .route("/users/:id", get(get_user))
+        .route("/users", post(create_user))
+        .route("/cards", get(list_cards))
+        .route("/cards", post(create_card))
         .with_state(pool);
 
     // run it with hyper
@@ -111,6 +149,34 @@ async fn main() {
         .serve(app.into_make_service())
         .await
         .unwrap();
+}
+
+async fn list_users(
+    State(pool): State<deadpool_diesel::postgres::Pool>,
+) -> Result<Json<Vec<User>>, (StatusCode, String)> {
+    let conn = pool.get().await.map_err(internal_error)?;
+
+    let res = conn
+        .interact(|conn| users::table.select(User::as_select()).load(conn))
+        .await
+        .map_err(internal_error)?
+        .map_err(internal_error)?;
+
+    Ok(Json(res))
+}
+
+async fn get_user(
+    State(pool): State<deadpool_diesel::postgres::Pool>,
+) -> Result<Json<Vec<User>>, (StatusCode, String)> {
+    let conn = pool.get().await.map_err(internal_error)?;
+
+    let res = conn
+        .interact(|conn| users::table.select(User::as_select()).load(conn))
+        .await
+        .map_err(internal_error)?
+        .map_err(internal_error)?;
+
+    Ok(Json(res))
 }
 
 async fn create_user(
@@ -133,13 +199,33 @@ async fn create_user(
     Ok(Json(res))
 }
 
-async fn list_users(
+async fn list_cards(
     State(pool): State<deadpool_diesel::postgres::Pool>,
-) -> Result<Json<Vec<User>>, (StatusCode, String)> {
+) -> Result<Json<Vec<Card>>, (StatusCode, String)> {
     let conn = pool.get().await.map_err(internal_error)?;
 
     let res = conn
-        .interact(|conn| users::table.select(User::as_select()).load(conn))
+        .interact(|conn| cards::table.select(Card::as_select()).load(conn))
+        .await
+        .map_err(internal_error)?
+        .map_err(internal_error)?;
+
+    Ok(Json(res))
+}
+
+async fn create_card(
+    State(pool): State<deadpool_diesel::postgres::Pool>,
+    Json(new_card): Json<NewCard>,
+) -> Result<Json<Card>, (StatusCode, String)> {
+    let conn = pool.get().await.map_err(internal_error)?;
+
+    let res = conn
+        .interact(|conn| {
+            diesel::insert_into(cards::table)
+                .values(new_card)
+                .returning(Card::as_returning())
+                .get_result(conn)
+        })
         .await
         .map_err(internal_error)?
         .map_err(internal_error)?;
